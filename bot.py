@@ -19,22 +19,14 @@
 # SOFTWARE.
 
 import os
+import asyncio
 import traceback
 import logging
+from aiohttp import web
 from pyrogram import Client, filters
-
-from configs import Config as C
-
-# LMAO, This Is Logging 
-# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-# logger = logging.getLogger(__name__)
-# logging.getLogger("pyrogram").setLevel(logging.WARNING)
-
-# Import From Framework
-# from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-
 from pyrogram.types import *
 
+from configs import Config as C
 from database.broadcast import broadcast
 from database.verifier import handle_user_status
 from database.database import Database
@@ -46,21 +38,34 @@ DB_NAME = C.DB_NAME
 
 db = Database(DB_URL, DB_NAME)
 
-# Don't Change Anything, Except If You Want To Add Value
-bot = Client('Feedback bot',
-             api_id=C.API_ID,
-             api_hash=C.API_HASH,
-             bot_token=C.BOT_TOKEN)
+bot = Client(
+    'Feedback bot',
+    api_id=C.API_ID,
+    api_hash=C.API_HASH,
+    bot_token=C.BOT_TOKEN
+)
 
-donate_link=C.DONATE_LINK
-
-owner_id=C.OWNER_ID
+donate_link = C.DONATE_LINK
+owner_id = C.OWNER_ID
 
 LOG_TEXT = "ID: <code>{}</code>\nFirst Name: <a href='tg://user?id={}'>{}{}</a>\nDC ID: <code>{}</code>"
-
 IF_TEXT = "<b>Message from:</b> {}\n<b>Name:</b> {}\n\n{}"
-
 IF_CONTENT = "<b>Message from:</b> {} \n<b>Name:</b> {}"
+
+
+# Web Server to satisfy Render Port Binding
+async def health_check(request):
+    return web.Response(text="Bot is running!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
 
 # Callback
 @bot.on_callback_query()
@@ -71,10 +76,8 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
     elif "notifon" in cb.data:
         notif = await db.get_notif(cb.from_user.id)
         if notif is True:
-            # 
             await db.set_notif(user_id, notif=False)
         else:
-            # 
             await db.set_notif(user_id, notif=True)
         await cb.message.edit(
             f"`Here You Can Set Your Settings:`\n\nSuccessfully setted notifications to **{await db.get_notif(user_id)}**",
@@ -93,16 +96,16 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
         await cb.answer(
             f"Successfully setted notifications to {await db.get_notif(user_id)}"
         )
-        
-        
+
+
 @bot.on_message((filters.private | filters.group))
 async def _(bot, cmd):
     await handle_user_status(bot, cmd)
 
+
 @bot.on_message(filters.command('start') & (filters.private | filters.group))
 async def start(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -112,8 +115,7 @@ async def start(bot, message):
             f"#NEWUSER: \n\nNew User [{message.from_user.first_name}](tg://user?id={message.from_user.id}) started @{BOT_USERNAME} !!",
         )
         return
-      
-    # 
+
     ban_status = await db.get_ban_status(chat_id)
     is_banned = ban_status['is_banned']
     ban_duration = ban_status['ban_duration']
@@ -122,16 +124,16 @@ async def start(bot, message):
         await message.reply_text(f"You are Banned 🚫 to use this bot for **{ban_duration}** day(s) for the reason __{ban_reason}__ \n\n**Message from the admin 🤠**")
         return
     await message.reply_text(
-        text="**Hi {}!**\n".format(message.chat.first_name)+C.START,
+        text="**Hi {}!**\n".format(message.chat.first_name) + C.START,
         reply_markup=InlineKeyboardMarkup([
-            [ InlineKeyboardButton(text="🛠SUPPORT🛠", url=f"{C.SUPPORT_GROUP}"), InlineKeyboardButton(text="📮UPDATES📮", url=f"{C.UPDATE_CHANNEL}")]
+            [InlineKeyboardButton(text="🛠SUPPORT🛠", url=f"{C.SUPPORT_GROUP}"), InlineKeyboardButton(text="📮UPDATES📮", url=f"{C.UPDATE_CHANNEL}")]
         ])
     )
+
 
 @bot.on_message(filters.command('help') & (filters.group | filters.private))
 async def help(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -147,11 +149,11 @@ async def help(bot, message):
     if is_banned is True:
         await message.reply_text(f"You are Banned 🚫 to use this bot for **{ban_duration}** day(s) for the reason __{ban_reason}__ \n\n**Message from the admin 🤠**")
         return
-      
+
     await message.reply_text(
         text=C.HELP,
         reply_markup=InlineKeyboardMarkup([
-            [ InlineKeyboardButton(text="🛠SUPPORT🛠", url=f"{C.SUPPORT_GROUP}"), InlineKeyboardButton(text="📮UPDATES📮", url=f"{C.UPDATE_CHANNEL}")]
+            [InlineKeyboardButton(text="🛠SUPPORT🛠", url=f"{C.SUPPORT_GROUP}"), InlineKeyboardButton(text="📮UPDATES📮", url=f"{C.UPDATE_CHANNEL}")]
         ])
     )
 
@@ -159,7 +161,6 @@ async def help(bot, message):
 @bot.on_message(filters.command('donate') & (filters.group | filters.private))
 async def donate(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -168,7 +169,7 @@ async def donate(bot, message):
             LOG_CHANNEL,
             f"#NEWUSER: \n\nNew User [{message.from_user.first_name}](tg://user?id={message.from_user.id}) started @{BOT_USERNAME} !!",
         )
-        
+
     ban_status = await db.get_ban_status(chat_id)
     is_banned = ban_status['is_banned']
     ban_duration = ban_status['ban_duration']
@@ -176,20 +177,18 @@ async def donate(bot, message):
     if is_banned is True:
         await message.reply_text(f"You are Banned 🚫 to use this bot for **{ban_duration}** day(s) for the reason __{ban_reason}__ \n\n**Message from the admin 🤠**")
         return
-        
+
     await message.reply_text(
         text=C.DONATE + "If You Liked This Bot You Can Also Donate Creator through BTC `3AKE4bNwb9TsgaofLQxHAGCR9w2ftwFs2R`",
         reply_markup=InlineKeyboardMarkup([
-            [ InlineKeyboardButton(text="DONATE", url=f"{donate_link}")]
+            [InlineKeyboardButton(text="DONATE", url=f"{donate_link}")]
         ])
     )
-
 
 
 @bot.on_message(filters.command("settings") & filters.private)
 async def opensettings(bot, cmd):
     user_id = cmd.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(user_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -203,13 +202,13 @@ async def opensettings(bot, cmd):
             text=f"⚙ `Here You Can Set Your Settings:` ⚙\n\nSuccessfully setted notifications to **{await db.get_notif(user_id)}**",
             reply_markup=InlineKeyboardMarkup(
                 [
-                    [InlineKeyboardButton(text=f"NOTIFICATION  {'🔔' if ((await db.get_notif(user_id)) is True) else '🔕'}",callback_data="notifon")],
+                    [InlineKeyboardButton(text=f"NOTIFICATION  {'🔔' if ((await db.get_notif(user_id)) is True) else '🔕'}", callback_data="notifon")],
                     [InlineKeyboardButton(text="CLOSE", callback_data="closeMeh")],
                 ]
             )
         )
     except Exception as e:
-        await cmd.reply_text(e)
+        await cmd.reply_text(str(e))
 
 
 @bot.on_message(filters.private & filters.command("broadcast"))
@@ -251,7 +250,7 @@ async def ban(c, m):
         ban_duration = int(m.command[2])
         ban_reason = " ".join(m.command[3:])
         ban_log_text = f"Banning user {user_id} for {ban_duration} days for the reason {ban_reason}."
-        
+
         if user_id == owner_id:
             await m.reply_text("**You can Ban The Owner Vro")
             return
@@ -336,13 +335,10 @@ async def _banned_usrs(c, m):
         return
     await m.reply_text(reply_text, True)
 
-    return
-
 
 @bot.on_message((filters.group | filters.private) & filters.text)
 async def pm_text(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -358,7 +354,7 @@ async def pm_text(bot, message):
     if is_banned is True:
         await message.reply_text(f"You are Banned 🚫 to use this bot for **{ban_duration}** day(s) for the reason __{ban_reason}__ \n\n**Message from the admin 🤠**")
         return
-      
+
     if message.from_user.id == owner_id:
         await reply_text(bot, message)
         return
@@ -369,10 +365,10 @@ async def pm_text(bot, message):
         text=IF_TEXT.format(reference_id, info.first_name, message.text),
     )
 
+
 @bot.on_message((filters.group | filters.private) & filters.media_group)
 async def pm_media_group(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -388,18 +384,17 @@ async def pm_media_group(bot, message):
     if is_banned is True:
         await message.reply_text(f"You are Banned 🚫 to use this bot for **{ban_duration}** day(s) for the reason __{ban_reason}__ \n\n**Message from the admin 🤠**")
         return
-      
+
     if message.from_user.id == owner_id:
         await replay_media(bot, message)
         return
     reference_id = int(message.chat.id)
     await bot.copy_media_group(chat_id=owner_id, from_chat_id=reference_id, message_id=message.message_id)
-    
+
 
 @bot.on_message((filters.group | filters.private) & filters.media)
 async def pm_media(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -415,18 +410,13 @@ async def pm_media(bot, message):
     if is_banned is True:
         await message.reply_text(f"You are Banned 🚫 to use this bot for **{ban_duration}** day(s) for the reason __{ban_reason}__ \n\n**Message from the admin 🤠**")
         return
-      
+
     if message.from_user.id == owner_id:
         await replay_media(bot, message)
         return
     info = await bot.get_users(user_ids=message.from_user.id)
     reference_id = int(message.chat.id)
     if message.media_group_id is not None:
-        # media = []
-        # async for m in bot.iter_history(message.chat.id, message.media_group_id):
-        #     print(m)
-        #     media.append(message.photo)
-        # bot.send_media_group(chat_id=owner_id, media=media)
         return
     else:
         await bot.copy_message(
@@ -434,14 +424,12 @@ async def pm_media(bot, message):
             from_chat_id=message.chat.id,
             message_id=message.message_id,
             caption=IF_CONTENT.format(reference_id, info.first_name),
-
         )
 
 
 @bot.on_message(filters.user(owner_id) & filters.text)
 async def reply_text(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -450,7 +438,7 @@ async def reply_text(bot, message):
             LOG_CHANNEL,
             f"#NEWUSER: \n\nNew User [{message.from_user.first_name}](tg://user?id={message.from_user.id}) started @{BOT_USERNAME} !!",
         )
-    
+
     reference_id = True
     if message.reply_to_message is not None:
         file = message.reply_to_message
@@ -464,8 +452,6 @@ async def reply_text(bot, message):
             pass
         await bot.send_message(
             chat_id=int(reference_id),
-            #from_chat_id=message.chat.id,
-            #message_id=message.message_id,
             text=message.text
         )
 
@@ -473,7 +459,6 @@ async def reply_text(bot, message):
 @bot.on_message(filters.user(owner_id) & filters.media)
 async def replay_media(bot, message):
     chat_id = message.from_user.id
-    # Adding to DB
     if not await db.is_user_exist(chat_id):
         data = await bot.get_me()
         BOT_USERNAME = data.username
@@ -493,23 +478,28 @@ async def replay_media(bot, message):
             reference_id = file.caption.split()[2]
         except Exception:
             pass
-        # check if media is group of media
         if message.media_group_id is not None:
             await bot.copy_message(
                 chat_id=int(reference_id),
                 from_chat_id=message.chat.id,
                 message_id=message.message_id,
                 caption=message.caption,
-    
             )
         else:
             await bot.copy_message(
                 chat_id=int(reference_id),
                 from_chat_id=message.chat.id,
                 message_id=message.message_id,
-    
             )
 
+
+async def main():
+    print("---------- ** Starting Web Server & Bot ** ----------")
+    await start_web_server()
+    await bot.start()
+    print("---------- ** Bot is Live ** ----------")
+    await asyncio.Event().wait()
+
+
 if __name__ == "__main__":
-    print("---------- ** Bot Started ** ----------")
-    bot.run()
+    asyncio.run(main())
