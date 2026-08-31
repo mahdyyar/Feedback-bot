@@ -23,7 +23,7 @@ import asyncio
 import traceback
 import logging
 from aiohttp import web
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import *
 
 from configs import Config as C
@@ -52,20 +52,17 @@ LOG_TEXT = "ID: <code>{}</code>\nFirst Name: <a href='tg://user?id={}'>{}{}</a>\
 IF_TEXT = "<b>Message from:</b> {}\n<b>Name:</b> {}\n\n{}"
 IF_CONTENT = "<b>Message from:</b> {} \n<b>Name:</b> {}"
 
+# Web Server Route
+routes = web.RouteTableDef()
 
-# Web Server to satisfy Render Port Binding
-async def health_check(request):
-    return web.Response(text="Bot is running!")
+@routes.get("/", allow_head=True)
+async def root_route_handler(request):
+    return web.json_response({"status": "running"})
 
-async def start_web_server():
-    app = web.Application()
-    app.router.add_get("/", health_check)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
+async def web_server():
+    web_app = web.Application(client_max_size=30000000)
+    web_app.add_routes(routes)
+    return web_app
 
 # Callback
 @bot.on_callback_query()
@@ -97,11 +94,9 @@ async def callback_handlers(bot: Client, cb: CallbackQuery):
             f"Successfully setted notifications to {await db.get_notif(user_id)}"
         )
 
-
 @bot.on_message((filters.private | filters.group))
 async def _(bot, cmd):
     await handle_user_status(bot, cmd)
-
 
 @bot.on_message(filters.command('start') & (filters.private | filters.group))
 async def start(bot, message):
@@ -130,7 +125,6 @@ async def start(bot, message):
         ])
     )
 
-
 @bot.on_message(filters.command('help') & (filters.group | filters.private))
 async def help(bot, message):
     chat_id = message.from_user.id
@@ -156,7 +150,6 @@ async def help(bot, message):
             [InlineKeyboardButton(text="🛠SUPPORT🛠", url=f"{C.SUPPORT_GROUP}"), InlineKeyboardButton(text="📮UPDATES📮", url=f"{C.UPDATE_CHANNEL}")]
         ])
     )
-
 
 @bot.on_message(filters.command('donate') & (filters.group | filters.private))
 async def donate(bot, message):
@@ -185,7 +178,6 @@ async def donate(bot, message):
         ])
     )
 
-
 @bot.on_message(filters.command("settings") & filters.private)
 async def opensettings(bot, cmd):
     user_id = cmd.from_user.id
@@ -210,7 +202,6 @@ async def opensettings(bot, cmd):
     except Exception as e:
         await cmd.reply_text(str(e))
 
-
 @bot.on_message(filters.private & filters.command("broadcast"))
 async def broadcast_handler_open(_, m):
     if m.from_user.id not in AUTH_USERS:
@@ -221,7 +212,6 @@ async def broadcast_handler_open(_, m):
         return
     await broadcast(m, db)
 
-
 @bot.on_message((filters.group | filters.private) & filters.command("stats"))
 async def sts(c, m):
     if m.from_user.id not in AUTH_USERS:
@@ -231,7 +221,6 @@ async def sts(c, m):
         text=f"**Total Users in Database 📂:** `{await db.total_users_count()}`\n\n**Total Users with Notification Enabled 🔔 :** `{await db.total_notif_users_count()}`",
         quote=True,
     )
-
 
 @bot.on_message(filters.private & filters.command("ban_user"))
 async def ban(c, m):
@@ -275,7 +264,6 @@ async def ban(c, m):
             quote=True,
         )
 
-
 @bot.on_message((filters.group | filters.private) & filters.command("unban_user"))
 async def unban(c, m):
     if m.from_user.id not in AUTH_USERS:
@@ -310,7 +298,6 @@ async def unban(c, m):
             quote=True,
         )
 
-
 @bot.on_message((filters.group | filters.private) & filters.command("banned_users"))
 async def _banned_usrs(c, m):
     if m.from_user.id not in AUTH_USERS:
@@ -334,7 +321,6 @@ async def _banned_usrs(c, m):
         os.remove("banned-users.txt")
         return
     await m.reply_text(reply_text, True)
-
 
 @bot.on_message((filters.group | filters.private) & filters.text)
 async def pm_text(bot, message):
@@ -365,7 +351,6 @@ async def pm_text(bot, message):
         text=IF_TEXT.format(reference_id, info.first_name, message.text),
     )
 
-
 @bot.on_message((filters.group | filters.private) & filters.media_group)
 async def pm_media_group(bot, message):
     chat_id = message.from_user.id
@@ -390,7 +375,6 @@ async def pm_media_group(bot, message):
         return
     reference_id = int(message.chat.id)
     await bot.copy_media_group(chat_id=owner_id, from_chat_id=reference_id, message_id=message.message_id)
-
 
 @bot.on_message((filters.group | filters.private) & filters.media)
 async def pm_media(bot, message):
@@ -426,7 +410,6 @@ async def pm_media(bot, message):
             caption=IF_CONTENT.format(reference_id, info.first_name),
         )
 
-
 @bot.on_message(filters.user(owner_id) & filters.text)
 async def reply_text(bot, message):
     chat_id = message.from_user.id
@@ -454,7 +437,6 @@ async def reply_text(bot, message):
             chat_id=int(reference_id),
             text=message.text
         )
-
 
 @bot.on_message(filters.user(owner_id) & filters.media)
 async def replay_media(bot, message):
@@ -492,14 +474,18 @@ async def replay_media(bot, message):
                 message_id=message.message_id,
             )
 
-
 async def main():
-    print("---------- ** Starting Web Server & Bot ** ----------")
-    await start_web_server()
+    print("---------- ** Starting Bot & Server ** ----------")
     await bot.start()
-    print("---------- ** Bot is Live ** ----------")
-    await asyncio.Event().wait()
-
+    
+    app = web.AppRunner(await web_server())
+    await app.setup()
+    port = int(os.environ.get("PORT", 8080))
+    await web.TCPSite(app, "0.0.0.0", port).start()
+    print(f"Server is listening on port {port}")
+    
+    await idle()
+    await bot.stop()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.get_event_loop().run_until_complete(main())
